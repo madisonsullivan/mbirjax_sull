@@ -163,3 +163,4 @@ class TranslationModeModel(TomographyModel):
         # TODO:  Provide code to implement forward projection
 
         return sinogram_view
+
