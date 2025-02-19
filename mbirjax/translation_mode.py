@@ -136,31 +136,45 @@ class TranslationModeModel(TomographyModel):
     @staticmethod
     @partial(jax.jit, static_argnames='projector_params')
     def forward_project_pixel_batch_to_one_view(voxel_values, pixel_indices, single_view_params, projector_params):
-        """
-        Forward project a set of voxels determined by indices into a single view.
 
-        NOTE: This function must be able to be jit-compiled.
-
-        Args:
-            voxel_values (jax array):  2D array of shape (num_indices, num_slices) of voxel values, where
-                voxel_values[i, j] is the value of the voxel in slice j at the location determined by indices[i].
-            pixel_indices (jax array of int):  1D vector of indices into flattened array of size num_rows x num_cols.
-            t view index (int): Index for the translation vector to get (x_shift, y_shift, z_shift).
-            projector_params (1D jax array): tuple of (sinogram_shape, recon_shape, get_geometry_params()).
-
-        Returns:
-            jax array of shape (num_det_rows, num_det_channels)
-        """
-        # Get all the geometry parameters - we use gp since geometry parameters is a named tuple and we'll access
-        # elements using, for example, gp.delta_det_channel, so a longer name would be clumsy.
-        gp = projector_params.geometry_params  # This is the namedtuple from get_geometry_parameters
-        num_views, num_det_rows, num_det_channels = projector_params.sinogram_shape
-        num_recon_rows, num_recon_columns, num_recon_slices = projector_params.recon_shape
-
-        # Returns a single view of the sinogram
-        sinogram_view = jnp.zeros((num_det_rows, num_det_channels))
-
-        # TODO:  Provide code to implement forward projection
 
         return sinogram_view
 
+    @staticmethod
+    @partial(jax.jit, static_argnames='projector_params')
+    def back_project_one_view_to_pixel_batch(sinogram_view, pixel_indices, single_view_params, projector_params,
+                                             coeff_power=1):
+
+
+        return voxel_values_cylinder
+
+
+
+
+
+    @staticmethod
+    def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, t):
+        """
+        Convert (i, j, k) indices into the recon volume to corresponding (x, y, z) coordinates.
+        """
+
+        return x, y, z
+
+    @staticmethod
+    def geometry_xyz_to_uv_mag(x, y, z, source_detector_dist, source_recon_dist):
+        """
+        Convert (x, y, z) coordinates to to (u, v) detector coordinates plus the pixel-dependent magnification.
+        """
+        return u, v, pixel_mag
+
+    @staticmethod
+    @jax.jit
+    def detector_uv_to_mn(u, v, delta_det_channel, delta_det_row, det_channel_offset, det_row_offset, num_det_rows,
+                          num_det_channels):
+        """
+        Convert (u, v) detector coordinates to fractional indices (m, n) into the detector.
+
+        Note:
+            This version does not account for nonzero detector rotation.
+        """
+        return m, n
