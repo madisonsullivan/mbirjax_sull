@@ -1,7 +1,5 @@
 """ This script demonstrates the effect of changing det_row_offset and det_channel_offset parameters, essentially
 moving the detector in the cone beam geometry.
-
-
 """
 
 import numpy as np
@@ -39,11 +37,37 @@ angles = jnp.linspace(start_angle, end_angle, num_views, endpoint=False)
 ct_model_for_generation = mbirjax.ConeBeamModel(sinogram_shape, angles, source_detector_dist=source_detector_dist, source_iso_dist=source_iso_dist)
 
 # Generate 3D Shepp Logan phantom
-print('Creating phantom')
+print('Creating original phantom')
 phantom = ct_model_for_generation.gen_modified_3d_sl_phantom()
 
 # Generate synthetic sinogram data
-print('Creating sinogram')
+print('Creating original sinogram')
+sinogram = ct_model_for_generation.forward_project(phantom)
+sinogram = np.array(sinogram)
+
+# View sinogram
+title = 'Original sinogram \nUse the sliders to change the view or adjust the intensity range.'
+mbirjax.slice_viewer(sinogram, slice_axis=0, title=title, slice_label='View')
+
+# Print parameters for original sinogram for comparison
+ct_model_for_generation.print_params()
+
+# Define the offset of the detector to simulate a translation
+det_row_offset = 1.0
+det_channel_offset = 1.0
+
+# Update the model parameters
+ct_model_for_generation.set_params(det_row_offset=det_row_offset)
+ct_model_for_generation.set_params(det_channel_offset=det_channel_offset)
+
+# Print parameters for offset sinogram for comparison
+ct_model_for_generation.print_params()
+
+print('Creating offset phantom')
+phantom = ct_model_for_generation.gen_modified_3d_sl_phantom()
+
+# Generate synthetic sinogram data
+print('Creating offset sinogram')
 sinogram = ct_model_for_generation.forward_project(phantom)
 sinogram = np.array(sinogram)
 
