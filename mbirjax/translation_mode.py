@@ -70,15 +70,18 @@ class TranslationModeModel(TomographyModel):
         """
         Compute the scale factor from a voxel in first row of ROR to its projection on the detector.
 
-        translation[t,1] = 0 means that the samples distance from the source remains constant.
+        Note: This version assumes that the samples distance from the source remains constant.
 
         Returns:
-            (float): magnification = source_detector_dist / ( source_recon_dist - translation[t,1] )
+            (float): magnification = source_detector_dist / source_recon_dist
         """
-
-        # TODO: Adjust as needed for the geometry.
-        magnification = 1.0
+        source_detector_dist, source_iso_dist = self.get_params(['source_detector_dist', 'source_iso_dist'])
+        if jnp.isinf(source_detector_dist):
+            magnification = 1
+        else:
+            magnification = source_detector_dist / source_recon_dist
         return magnification
+
 
     def verify_valid_params(self):
         """
@@ -157,7 +160,6 @@ class TranslationModeModel(TomographyModel):
 
         Note: This version assumes that the samples distance from the source remains constant.
         """
-
         # Compute the x, y, z coordinates for the given translation
         # Note the change in order from (i, j) to (y, x)!!
         y = delta_recon_row * i
@@ -191,7 +193,6 @@ class TranslationModeModel(TomographyModel):
         Note:
             This version does not account for nonzero detector rotation.
         """
-
         # Get the center of the detector grid for columns and rows
         det_center_row = (num_det_rows - 1) / 2.0  # num_of_rows
         det_center_channel = (num_det_channels - 1) / 2.0  # num_of_cols
