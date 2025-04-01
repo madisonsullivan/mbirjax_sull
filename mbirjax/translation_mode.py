@@ -34,10 +34,10 @@ class TranslationModeModel(TomographyModel):
     TomographyModel : The base class from which this class inherits.
     """
 
-    def __init__(self, sinogram_shape, translation, source_detector_dist, source_recon_dist):
+    def __init__(self, sinogram_shape, translations, source_detector_dist, source_recon_dist):
         # param1 = source_detector_dist
         # param2 = source_recon_dist
-        # view_dependent_vec1 = translation
+        # view_dependent_vec1 = translations
 
         super().__init__(sinogram_shape, param1=param1, param2=param2, view_params_array=view_params_array)
 
@@ -150,21 +150,35 @@ class TranslationModeModel(TomographyModel):
 
 
 
-
-
     @staticmethod
-    def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, t):
+    def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, translation):
         """
         Convert (i, j, k) indices into the recon volume to corresponding (x, y, z) coordinates.
+
+        Note: This version assumes that the samples distance from the source remains constant.
         """
+
+        # Compute the x, y, z coordinates for the given translation
+        # Note the change in order from (i, j) to (y, x)!!
+        y = delta_recon_row * i
+        x = delta_voxel * j - translation[0]
+        z = delta_voxel * k - translation[1]
 
         return x, y, z
 
     @staticmethod
-    def geometry_xyz_to_uv_mag(x, y, z, source_detector_dist, source_recon_dist):
+    def geometry_xyz_to_uv_mag(x, y, z, source_detector_dist, magnification):
         """
         Convert (x, y, z) coordinates to to (u, v) detector coordinates plus the pixel-dependent magnification.
         """
+        # Compute the magnification at this specific voxel
+        # The following expression is valid even when source_detector_dist = jnp.Inf
+        pixel_mag = 1 / (1 / magnification - y / source_detector_dist)
+
+        # Compute the physical position that this voxel projects onto the detector
+        u = pixel_mag * x
+        v = pixel_mag * z
+
         return u, v, pixel_mag
 
     @staticmethod
@@ -177,4 +191,13 @@ class TranslationModeModel(TomographyModel):
         Note:
             This version does not account for nonzero detector rotation.
         """
+
+        # Get the center of the detector grid for columns and rows
+        det_center_row = (num_det_rows - 1) / 2.0  # num_of_rows
+        det_center_channel = (num_det_channels - 1) / 2.0  # num_of_cols
+
+        # Calculate indices on the detector grid
+        m = (v + det_row_offset) / delta_det_row + det_center_row
+        n = (u + det_channel_offset) / delta_det_channel + det_center_channel  # Sync with compute_horizontal_data
+
         return m, n
