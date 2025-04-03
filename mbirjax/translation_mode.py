@@ -26,7 +26,7 @@ class TranslationModeModel(TomographyModel):
             Shape of the sinogram as a tuple in the form `(views, rows, channels)`, where 'views' is the number of
             different translations, 'rows' correspond to the number of detector rows, and 'channels' index columns of
             the detector that are assumed to be aligned with the rotation axis.
-        translation_vectors (jnp.ndarray):
+        translations (jnp.ndarray):
             A 2D array of translation vectors in ALUs, specifying the translation relative to the origin.
 
     See Also
@@ -58,8 +58,8 @@ class TranslationModeModel(TomographyModel):
         required_params, params = ParameterHandler.load_param_dict(filename, required_param_names, values_only=True)
 
         # TODO: Adjust these to match the signature of __init__
-        translation = params['view_params_array']
-        required_params['translation'] = translation
+        translations = params['view_params_array']
+        required_params['translations'] = translations
         del params['view_params_array']
 
         new_model = cls(**required_params)
@@ -75,7 +75,7 @@ class TranslationModeModel(TomographyModel):
         Returns:
             (float): magnification = source_detector_dist / source_recon_dist
         """
-        source_detector_dist, source_iso_dist = self.get_params(['source_detector_dist', 'source_iso_dist'])
+        source_detector_dist, source_recon_dist = self.get_params(['source_detector_dist', 'source_recon_dist'])
         if jnp.isinf(source_detector_dist):
             magnification = 1
         else:
@@ -157,6 +157,10 @@ class TranslationModeModel(TomographyModel):
     def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, translation):
         """
         Convert (i, j, k) indices into the recon volume to corresponding (x, y, z) coordinates.
+
+        Args:
+            translation (1D array):  [horizontal_offset, vertical_offset], array specifying the translation for the current
+            view relative to the origin
 
         Note: This version assumes that the samples distance from the source remains constant.
         """
