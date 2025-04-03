@@ -35,11 +35,20 @@ class TranslationModeModel(TomographyModel):
     """
 
     def __init__(self, sinogram_shape, translations, source_detector_dist, source_recon_dist):
-        # param1 = source_detector_dist
-        # param2 = source_recon_dist
-        # view_dependent_vec1 = translations
+        ''' Following the API reference, Args:
+            param1 = source_detector_dist : Distance from source to detector in ALU
+            param2 = source_recon_dist : Distance from source to first row in ROR in ALU
+            view_dependent_vec1 = translations : 1D array of 2D translations in ALU (viewed from the source)
+        '''
+        view_dependent_vecs = [vec.flatten() for vec in [translations]]
+        try:
+            view_params_array = jnp.stack(view_dependent_vecs, axis=1)
+        except ValueError as e:
+            raise ValueError("Incompatible view dependent vector lengths:  all view-dependent vectors must have the "
+                             "same length.")
 
-        super().__init__(sinogram_shape, param1=param1, param2=param2, view_params_array=view_params_array)
+        super().__init__(sinogram_shape, view_params_array=view_params_array, source_detector_dist=source_detector_dist,
+                         source_recon_dist=source_recon_dist)
 
     @classmethod
     def from_file(cls, filename):
