@@ -2,8 +2,11 @@ import jax
 import jax.numpy as jnp
 from functools import partial
 from collections import namedtuple
+import warnings
+import mbirjax
+from mbirjax import tomography_utils
 
-from build.lib.experiments.demo_5_half_sino import delta_det_row
+
 
 from mbirjax import TomographyModel, ParameterHandler, tomography_utils
 
@@ -61,16 +64,16 @@ class TranslationModeModel(TomographyModel):
         Returns:
             TranslationModeModel with the specified parameters.
         """
-        # Load the parameters and convert view-dependent parameters to use the geometry-specific keywords.
-        # TODO: Adjust these to match the signature of __init__
+        # Load the parameters and convert view-dependent parameters to the TranslationModeModel keywords.
         required_param_names = ['sinogram_shape', 'source_detector_dist', 'source_recon_dist']
-        required_params, params = ParameterHandler.load_param_dict(filename, required_param_names, values_only=True)
+        required_params, params = mbirjax.ParameterHandler.load_param_dict(filename, required_param_names, values_only=True)
 
-        # TODO: Adjust these to match the signature of __init__
+        # Collect the required parameters into a separate dictionary and remove them from the loaded dict.
         translations = params['view_params_array']
-        required_params['translations'] = translations
         del params['view_params_array']
+        required_params['translations'] = translations
 
+        # Get an instance with the required parameters, then set any optional parameters
         new_model = cls(**required_params)
         new_model.set_params(**params)
         return new_model
@@ -99,12 +102,14 @@ class TranslationModeModel(TomographyModel):
         super().verify_valid_params()
         sinogram_shape, view_params_array = self.get_params(['sinogram_shape', 'view_params_array'])
 
-        # TODO: Modify as needed for the geometry.
+        # Check number of translations match sinogram views
         if view_params_array.shape[0] != sinogram_shape[0]:
             error_message = "Number view dependent parameter vectors must equal the number of views. \n"
             error_message += "Got {} for length of view-dependent parameters and "
             error_message += "{} for number of views.".format(view_params_array.shape[0], sinogram_shape[0])
             raise ValueError(error_message)
+
+        # TODO: Check other necessary parameters, cone angle > 45?
 
     def get_geometry_parameters(self):
         """
