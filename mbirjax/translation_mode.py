@@ -411,9 +411,54 @@ class TranslationModeModel(TomographyModel):
         pixel_mag = 1 / (1 / gp.magnification - y / gp.source_detector_dist)
         return y, pixel_mag
 
+    @staticmethod
+    def compute_horizontal_data(pixel_indices, translation, projector_params):
+        """
+        Compute the quantities n_p, n_p_center, W_p_c, cos_alpha_p_xy needed for vertical projection.
 
+        Args:
+            pixel_indices (1D jax array of int):  indices into flattened array of size num_rows x num_cols.
+            translation (array): The translation array for this view.
+            projector_params (namedtuple): tuple of (sinogram_shape, recon_shape, get_geometry_params()).
 
+        Returns:
+            n_p, n_p_center, W_p_c, cos_alpha_p_xy
+        """
+        # Get all the geometry parameters - we use gp since geometry parameters is a named tuple and we'll access
+        # elements using, for example, gp.delta_det_channel, so a longer name would be clumsy.
+        gp = projector_params.geometry_params
 
+        num_views, num_det_rows, num_det_channels = projector_params.sinogram_shape
+        recon_shape = projector_params.recon_shape
+        num_recon_rows, num_recon_cols, num_recon_slices = recon_shape
+
+        # Convert the index into (i,j,k) coordinates corresponding to the indices into the 3D voxel array
+        row_index, col_index = jnp.unravel_index(pixel_indices, recon_shape[:2])
+        slice_index = jnp.arange(1)
+
+        x_p, y_p, _ = TranslationModeModel.recon_ijk_to_xyz(row_index, col_index, slice_index, gp.delta_voxel,
+                                                      gp.delta_recon_row, translation)
+
+        # Convert from xyz to coordinates on detector
+        # pixel_mag should be kept in terms of magnification to allow for source_detector_dist = jnp.Inf
+        pixel_mag = 1 / (1 / gp.magnification - y_p / gp.source_detector_dist)
+        # Compute the physical position that this voxel projects onto the detector
+        u_p = pixel_mag * x_p
+        det_center_channel = (num_det_channels - 1) / 2.0  # num_of_cols
+
+        # Calculate indices on the detector grid
+        n_p = (u_p + gp.det_channel_offset) / gp.delta_det_channel + det_center_channel  # Sync with detector_uv_to_mn
+        n_p_center = jnp.round(n_p).astype(int)
+
+        # Compute horizontal and vertical cone angle of pixel
+        # theta_p = jnp.arctan2(u_p, gp.source_detector_dist)
+
+        # Compute projected voxel width along columns and rows (in fraction of detector size)
+        W_p_c = pixel_mag * (gp.delta_voxel / gp.delta_det_channel)
+
+        horizontal_data = (n_p, n_p_center, W_p_c)
+
+        return horizontal_data
 
 
 
