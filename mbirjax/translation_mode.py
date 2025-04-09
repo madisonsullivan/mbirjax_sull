@@ -279,7 +279,7 @@ class TranslationModeModel(TomographyModel):
         num_views, num_det_rows, num_det_channels = projector_params.sinogram_shape
 
         # Get the data needed for horizontal projection
-        n_p, n_p_center, W_p_c, cos_alpha_p_xy = TranslationModeModel.compute_horizontal_data(pixel_indices, translation, projector_params)
+        n_p, n_p_center, W_p_c, cos_theta_p = TranslationModeModel.compute_horizontal_data(pixel_indices, translation, projector_params)
         L_max = jnp.minimum(1, W_p_c)
 
         # Allocate the sinogram array
@@ -290,7 +290,7 @@ class TranslationModeModel(TomographyModel):
             n = n_p_center + n_offset
             abs_delta_p_c_n = jnp.abs(n_p - n)
             L_p_c_n = jnp.clip((W_p_c + 1) / 2 - abs_delta_p_c_n, 0, L_max)
-            A_chan_n = gp.delta_voxel * L_p_c_n / cos_alpha_p_xy
+            A_chan_n = L_p_c_n / cos_theta_p
             A_chan_n *= (n >= 0) * (n < num_det_channels)
             sinogram_view = sinogram_view.at[:, n].add(A_chan_n.reshape((1, -1)) * voxel_values.T)
 
@@ -451,21 +451,15 @@ class TranslationModeModel(TomographyModel):
         n_p_center = jnp.round(n_p).astype(int)
 
         # Compute horizontal and vertical cone angle of pixel
-        # theta_p = jnp.arctan2(u_p, gp.source_detector_dist)
+        theta_p = jnp.arctan2(u_p, gp.source_detector_dist)
+        cos_theta_p = jnp.cos(theta_p)
 
         # Compute projected voxel width along columns and rows (in fraction of detector size)
         W_p_c = pixel_mag * (gp.delta_voxel / gp.delta_det_channel)
 
-        horizontal_data = (n_p, n_p_center, W_p_c)
+        horizontal_data = (n_p, n_p_center, W_p_c, cos_theta_p)
 
         return horizontal_data
-
-
-
-
-
-
-
 
     @staticmethod
     @partial(jax.jit, static_argnames='projector_params')
