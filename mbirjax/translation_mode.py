@@ -6,8 +6,6 @@ import warnings
 import mbirjax
 from mbirjax import tomography_utils
 
-
-
 from mbirjax import TomographyModel, ParameterHandler, tomography_utils
 
 
@@ -109,7 +107,14 @@ class TranslationModeModel(TomographyModel):
             error_message += "{} for number of views.".format(view_params_array.shape[0], sinogram_shape[0])
             raise ValueError(error_message)
 
-        # TODO: Check other necessary parameters, cone angle > 45?
+        # Check for cone angle > 45 degrees
+        source_detector_dist, delta_det_row, det_row_offset = \
+            self.get_params(['source_detector_dist', 'delta_det_row', 'det_row_offset'])
+        half_detector_height = delta_det_row * sinogram_shape[1] / 2 + jnp.abs(det_row_offset)
+        if half_detector_height > source_detector_dist:
+            warnings.warn('Cone angle is more than 45 degrees.  This will likely produce recon artifacts.')
+
+        # TODO: Check other necessary parameters?
 
     def get_geometry_parameters(self):
         """
@@ -120,20 +125,58 @@ class TranslationModeModel(TomographyModel):
         """
         # TODO: Include additional names as needed for the projectors.
         # First get the parameters managed by ParameterHandler
-        geometry_param_names = ['delta_det_row', 'delta_det_channel', 'det_row_offset', 'det_channel_offset', 'delta_voxel']
+        geometry_param_names = ['delta_det_row', 'delta_det_channel', 'det_row_offset', 'det_channel_offset',
+                                'source_detector_dist', 'delta_voxel']
         geometry_param_values = self.get_params(geometry_param_names)
 
         # Then get additional parameters that are calculated separately, such as psf_radius and magnification.
-        # geometry_param_names += ['psf_radius']
-        # geometry_param_values.append(self.get_psf_radius())
-        # geometry_param_names += ['magnification']
-        # geometry_param_values.append(self.get_magnifiction())
+        geometry_param_names += ['psf_radius']
+        geometry_param_values.append(self.get_psf_radius())
+        geometry_param_names += ['magnification']
+        geometry_param_values.append(self.get_magnifiction())
 
         # Then create a namedtuple to access parameters by name in a way that can be jit-compiled.
         GeometryParams = namedtuple('GeometryParams', geometry_param_names)
         geometry_params = GeometryParams(*tuple(geometry_param_values))
 
         return geometry_params
+
+    def get_psf_radius(self):
+        """
+        Compute the integer radius of the PSF kernel for cone beam projection.
+        """
+        delta_det_row, delta_det_channel, source_detector_dist, recon_shape, delta_voxel = self.get_params(
+            ['delta_det_row', 'delta_det_channel', 'source_detector_dist', 'recon_shape', 'delta_voxel'])
+        magnification = self.get_magnification()
+
+        # Compute minimum detector pitch
+        delta_det = jnp.minimum(delta_det_row, delta_det_channel)
+
+        # Compute maximum magnification
+        if jnp.isinf(source_detector_dist):
+            max_magnification = 1
+            min_magnification = 1
+        else:
+            source_to_iso_dist = source_detector_dist / magnification
+            # This isn't exactly the closest pixel since we're not accounting for rotation but for realistic cases it shouldn't matter.
+            source_to_closest_pixel = source_to_iso_dist - jnp.maximum(recon_shape[0], recon_shape[1])*delta_voxel
+            max_magnification = source_detector_dist / source_to_closest_pixel
+            source_to_farthest_pixel = source_to_iso_dist + jnp.maximum(recon_shape[0], recon_shape[1])*delta_voxel
+            min_magnification = source_detector_dist / source_to_farthest_pixel
+
+        # Compute the maximum number of detector rows/channels on either side of the center detector hit by a voxel
+        psf_radius = int(jnp.ceil(jnp.ceil((delta_voxel * max_magnification / delta_det)) / 2))
+        # Then repeat for the back projection from detector elements to voxels.
+        # The voxels closest to the detector will be covered the most by a given detector element.
+        # With magnification=1, the number of voxels per element would be delta_det / delta_voxel
+        max_voxels_per_detector = delta_det / (min_magnification * delta_voxel)
+        self.bp_psf_radius = int(jnp.ceil(jnp.ceil(max_voxels_per_detector) / 2))
+
+        self.slice_range_length = int(1 + 2 * self.bp_psf_radius + \
+                                  jnp.ceil(self.entries_per_cylinder_batch * max_voxels_per_detector))
+
+        return psf_radius
+
 
     def auto_set_recon_size(self, sinogram_shape, no_compile=True, no_warning=False):
         """ Compute the automatic recon shape cone beam reconstruction.
