@@ -333,7 +333,7 @@ class TranslationModeModel(TomographyModel):
         # For computational efficiency, we use that to scale the voxel_cylinder values.
         # TODO:  possibly convert to a jitted function with donate_argnames to avoid copies for z, v, phi_p, cos_phi_p
         k = jnp.arange(len(voxel_cylinder))
-        z = gp.delta_voxel * (k - (num_slices - 1) / 2.0) + gp.recon_slice_offset  # recon_ijk_to_xyz
+        z = gp.delta_voxel * k - translation[1]  # recon_ijk_to_xyz
         v = pixel_mag * z  # geometry_xyz_to_uv_mag
         # Compute vertical cone angle of voxels
         phi_p = jnp.arctan2(v, gp.source_detector_dist)  # compute_vertical_data_single_pixel
@@ -466,7 +466,7 @@ class TranslationModeModel(TomographyModel):
         return det_voxel_cylinder
 
     @staticmethod
-    def back_vertical_fan_one_view_to_one_pixel(detector_column_values, pixel_index, angle, projector_params,
+    def back_vertical_fan_one_view_to_one_pixel(detector_column_values, pixel_index, translation, projector_params,
                                                 coeff_power=1):
         """
         Apply the back projection of a vertical fan beam transformation to a single voxel cylinder and return the column
@@ -476,7 +476,7 @@ class TranslationModeModel(TomographyModel):
             detector_column_values (1D jax array): 1D array of shape (num_det_rows,) of voxel values, where
                 detector_column_values[i, j] is the value of the voxel in row j at the location determined by indices[i].
             pixel_index (int):  Index into flattened array of size num_rows x num_cols.
-            angle (float): The projection angle in radians for this view.
+            translation (array): The translation for this view.
             projector_params (namedtuple): tuple of (sinogram_shape, recon_shape, get_geometry_params()).
             coeff_power (int): backproject using the coefficients of (A_ij ** coeff_power).
                 Normally 1, but should be 2 when computing Hessian diagonal.
@@ -507,9 +507,9 @@ class TranslationModeModel(TomographyModel):
             new_cylinder = jnp.zeros(slices_per_batch)
             # Get the data needed for vertical projection
             cur_slice_indices = start_index + jnp.arange(slices_per_batch)
-            m_p, m_p_center, W_p_r, cos_alpha_p_z = ConeBeamModel.compute_vertical_data_single_pixel(pixel_index,
+            m_p, m_p_center, W_p_r, cos_phi_p = TranslationModeModel.compute_vertical_data_single_pixel(pixel_index,
                                                                                                      cur_slice_indices,
-                                                                                                     angle,
+                                                                                                     translation,
                                                                                                      projector_params)
             L_max = jnp.minimum(1, W_p_r)  # Maximum fraction of a detector that can be covered by one voxel.
 
@@ -518,7 +518,7 @@ class TranslationModeModel(TomographyModel):
                 m = m_p_center + m_offset
                 abs_delta_p_r_m = jnp.abs(m_p - m)  # Distance from projection of center of voxel to center of detector
                 L_p_r_m = jnp.clip((W_p_r + 1) / 2 - abs_delta_p_r_m, 0, L_max)
-                A_row_m = L_p_r_m / cos_alpha_p_z
+                A_row_m = L_p_r_m / cos_phi_p
                 A_row_m *= (m >= 0) * (m < num_det_rows)
                 A_row_m = A_row_m ** coeff_power
                 new_cylinder = jnp.add(new_cylinder, A_row_m * detector_column_values[m])
@@ -584,21 +584,12 @@ class TranslationModeModel(TomographyModel):
 
     @staticmethod
     @jax.jit
-    def compute_y_mag_for_pixel(pixel_index, angle, recon_shape, projector_params):
+    def compute_y_mag_for_pixel(pixel_index, translation, recon_shape, projector_params):
 
         gp = projector_params.geometry_params
         row_index, col_index = jnp.unravel_index(pixel_index, recon_shape[:2])
 
-        # Compute the un-rotated coordinates relative to iso
-        # Note the change in order from (i, j) to (y, x)!!
-        y_tilde = gp.delta_voxel * (row_index - (recon_shape[0] - 1) / 2.0)
-        x_tilde = gp.delta_voxel * (col_index - (recon_shape[1] - 1) / 2.0)
-
-        # Precompute cosine and sine of view angle, then do the rotation
-        cosine = jnp.cos(angle)  # length = num_views
-        sine = jnp.sin(angle)  # length = num_views
-
-        y = sine * x_tilde + cosine * y_tilde
+        y = gp.delta_recon_row * row_index
 
         # Convert from xyz to coordinates on detector
         pixel_mag = 1 / (1 / gp.magnification - y / gp.source_detector_dist)
