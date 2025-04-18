@@ -94,6 +94,8 @@ class TomographyModel(ParameterHandler):
             reps_per_projection = 2  # This is determined empirically and should probably be determined by each subclass rather than set here.
         elif isinstance(self, mbirjax.ParallelBeamModel):
             reps_per_projection = 2
+        elif isinstance(self, mbirjax.TranslationModeModel):
+            reps_per_projection = 2
         else:
             raise ValueError('Unknown reps_per_projection for {}.'.format(self.get_params('geometry_type')))
 

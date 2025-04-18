@@ -41,15 +41,13 @@ class TranslationModeModel(TomographyModel):
             param2 = source_recon_dist : Distance from source to first row in ROR in ALU
             view_dependent_vec1 = translations : 1D array of 2D translations in ALU (viewed from the source)
         '''
-        view_dependent_vecs = [vec.flatten() for vec in [translations]]
+        #view_dependent_vecs = [vec.flatten() for vec in [translations]]
+        view_params_array = translations
+        print(view_params_array)
         self.bp_psf_radius = 1
         self.entries_per_cylinder_batch = 128
         self.slice_range_length = 0
-        try:
-            view_params_array = jnp.stack(view_dependent_vecs, axis=1)
-        except ValueError as e:
-            raise ValueError("Incompatible view dependent vector lengths:  all view-dependent vectors must have the "
-                             "same length.")
+
 
         super().__init__(sinogram_shape, view_params_array=view_params_array, source_detector_dist=source_detector_dist,
                          source_recon_dist=source_recon_dist)
