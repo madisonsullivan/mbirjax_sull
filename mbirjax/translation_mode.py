@@ -531,7 +531,7 @@ class TranslationModeModel(TomographyModel):
     @staticmethod
     def compute_vertical_data_single_pixel(pixel_index, slice_indices, translation, projector_params):
         """
-        Compute the quantities m_p, m_p_center, W_p_r, cos_alpha_p_z needed for vertical projection.
+        Compute the quantities m_p, m_p_center, W_p_r, cos_phi_p needed for vertical projection.
 
         Args:
             pixel_index (int):  Index into flattened array of size num_rows x num_cols.
@@ -540,7 +540,7 @@ class TranslationModeModel(TomographyModel):
             projector_params (namedtuple): tuple of (sinogram_shape, recon_shape, get_geometry_params()).
 
         Returns:
-            m_p, m_p_center, W_p_r, cos_alpha_p_z
+            m_p, m_p_center, W_p_r, cos_phi_p
         """
         # Get all the geometry parameters - we use gp since geometry parameters is a named tuple and we'll access
         # elements using, for example, gp.delta_det_channel, so a longer name would be clumsy.
@@ -596,7 +596,7 @@ class TranslationModeModel(TomographyModel):
     @staticmethod
     def compute_horizontal_data(pixel_indices, translation, projector_params):
         """
-        Compute the quantities n_p, n_p_center, W_p_c, cos_alpha_p_xy needed for vertical projection.
+        Compute the quantities n_p, n_p_center, W_p_c, cos_theta_p needed for vertical projection.
 
         Args:
             pixel_indices (1D jax array of int):  indices into flattened array of size num_rows x num_cols.
