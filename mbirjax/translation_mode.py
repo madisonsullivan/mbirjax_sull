@@ -3,10 +3,12 @@ import jax.numpy as jnp
 from functools import partial
 from collections import namedtuple
 import warnings
-import mbirjax
-from mbirjax import tomography_utils
+import numpy as np
 
-from mbirjax import TomographyModel, ParameterHandler, tomography_utils
+import mbirjax
+
+
+from mbirjax import TomographyModel
 
 
 
@@ -93,6 +95,20 @@ class TranslationModeModel(TomographyModel):
             magnification = source_detector_dist / source_recon_dist
         return magnification
 
+    def get_delta_recon_row(self):
+        source_detector_dist, delta_det_row, det_row_offset, delta_voxel, sinogram_shape = \
+            self.get_params(['source_detector_dist', 'delta_det_row', 'det_row_offset', 'delta_voxel', 'sinogram_shape'])
+        half_detector_height = delta_det_row * sinogram_shape[1] / 2 + jnp.abs(det_row_offset)
+
+        tan_half_theta = half_detector_height/source_detector_dist
+        delta_recon_row = delta_voxel / tan_half_theta
+
+        if delta_recon_row < 5*delta_voxel:
+             delta_recon_row = delta_recon_row
+        else:
+             delta_recon_row = 1 # some maximum value of delta_recon_row
+
+        return delta_recon_row
 
     def verify_valid_params(self):
         """
@@ -132,9 +148,10 @@ class TranslationModeModel(TomographyModel):
 
         # Then get additional parameters that are calculated separately, such as psf_radius and magnification.
         geometry_param_names += ['magnification', 'psf_radius', 'bp_psf_radius',
-                                 'entries_per_cylinder_batch', 'slice_range_length']
+                                 'entries_per_cylinder_batch', 'slice_range_length', 'delta_recon_row']
         geometry_param_values.append(self.get_magnification())
         geometry_param_values.append(self.get_psf_radius())
+        geometry_param_values.append(self.get_delta_recon_row())
         geometry_param_values.append(self.bp_psf_radius)
         geometry_param_values.append(self.entries_per_cylinder_batch)
         geometry_param_values.append(self.slice_range_length)
