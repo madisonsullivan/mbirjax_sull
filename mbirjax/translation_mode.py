@@ -45,7 +45,7 @@ class TranslationModeModel(TomographyModel):
         '''
         #view_dependent_vecs = [vec.flatten() for vec in [translations]]
         view_params_array = translations
-        print(view_params_array)
+
         self.bp_psf_radius = 1
         self.entries_per_cylinder_batch = 128
         self.slice_range_length = 0
@@ -107,7 +107,13 @@ class TranslationModeModel(TomographyModel):
              delta_recon_row = delta_recon_row
         else:
              delta_recon_row = 1 # some maximum value of delta_recon_row
+        #max_allowed = 5 * delta_voxel
+        #delta_recon_row = jnp.minimum(delta_recon_row, max_allowed)
 
+
+        print(f"delta_voxel={delta_voxel}, half_detector_height={half_detector_height}, "
+              f"source_detector_dist={source_detector_dist}, tan_half_theta={tan_half_theta}, "
+              f"delta_recon_row={delta_recon_row}")
         return delta_recon_row
 
     def verify_valid_params(self):
@@ -151,10 +157,10 @@ class TranslationModeModel(TomographyModel):
                                  'entries_per_cylinder_batch', 'slice_range_length', 'delta_recon_row']
         geometry_param_values.append(self.get_magnification())
         geometry_param_values.append(self.get_psf_radius())
-        geometry_param_values.append(self.get_delta_recon_row())
         geometry_param_values.append(self.bp_psf_radius)
         geometry_param_values.append(self.entries_per_cylinder_batch)
         geometry_param_values.append(self.slice_range_length)
+        geometry_param_values.append(self.get_delta_recon_row())
 
         # Then create a namedtuple to access parameters by name in a way that can be jit-compiled.
         GeometryParams = namedtuple('GeometryParams', geometry_param_names)
@@ -676,7 +682,9 @@ class TranslationModeModel(TomographyModel):
         y = delta_recon_row * i
         x = delta_voxel * j - translation[0]
         z = delta_voxel * k - translation[1]
-
+        print(f'delta_recon_row:',delta_recon_row)
+        print(f'delta_voxel:', delta_voxel)
+        print(f'translation:',translation[0])
         return x, y, z
 
     @staticmethod
