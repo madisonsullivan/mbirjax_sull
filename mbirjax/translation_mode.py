@@ -52,7 +52,7 @@ class TranslationModeModel(TomographyModel):
 
 
         super().__init__(sinogram_shape, view_params_array=view_params_array, source_detector_dist=source_detector_dist,
-                         source_recon_dist=source_recon_dist)
+                         source_recon_dist=source_recon_dist, recon_slice_offset=0.0)
 
     @classmethod
     def from_file(cls, filename):
@@ -143,7 +143,7 @@ class TranslationModeModel(TomographyModel):
         # TODO: Include additional names as needed for the projectors.
         # First get the parameters managed by ParameterHandler
         geometry_param_names = ['delta_det_row', 'delta_det_channel', 'det_row_offset', 'det_channel_offset',
-                                'source_detector_dist', 'delta_voxel']
+                                'source_detector_dist', 'delta_voxel', 'recon_slice_offset']
         geometry_param_values = self.get_params(geometry_param_names)
 
         # Then get additional parameters that are calculated separately, such as psf_radius and magnification.
