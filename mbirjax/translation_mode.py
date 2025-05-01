@@ -96,6 +96,22 @@ class TranslationModeModel(TomographyModel):
         return magnification
 
     def get_delta_recon_row(self):
+        """
+        Compute the reconstruction row thickness in ALU (`delta_recon_row`),
+        based on delta_voxel and cone angle of the system geometry.
+
+        The goal is to increase `delta_recon_row` as the cone angle increases,
+        improving depth perception in reconstruction. The calculation uses the
+        relationship:
+
+            delta_recon_row = delta_voxel / tan(theta/2)
+
+        where theta/2 is half the cone angle.
+
+        Returns:
+            (float): delta_recon_row = delta_voxel / tan(theta/2)
+        """
+
         source_detector_dist, delta_det_row, det_row_offset, delta_voxel, sinogram_shape = \
             self.get_params(['source_detector_dist', 'delta_det_row', 'det_row_offset', 'delta_voxel', 'sinogram_shape'])
         half_detector_height = delta_det_row * sinogram_shape[1] / 2 + jnp.abs(det_row_offset)
@@ -103,17 +119,11 @@ class TranslationModeModel(TomographyModel):
         tan_half_theta = half_detector_height/source_detector_dist
         delta_recon_row = delta_voxel / tan_half_theta
 
-        if delta_recon_row < 5*delta_voxel:
+        max_delta_recon_row = 5*delta_voxel
+        if delta_recon_row < max_delta_recon_row:
              delta_recon_row = delta_recon_row
         else:
-             delta_recon_row = 1 # some maximum value of delta_recon_row
-        #max_allowed = 5 * delta_voxel
-        #delta_recon_row = jnp.minimum(delta_recon_row, max_allowed)
-
-
-        print(f"delta_voxel={delta_voxel}, half_detector_height={half_detector_height}, "
-              f"source_detector_dist={source_detector_dist}, tan_half_theta={tan_half_theta}, "
-              f"delta_recon_row={delta_recon_row}")
+             delta_recon_row = 1.0 # some maximum value of delta_recon_row
         return delta_recon_row
 
     def verify_valid_params(self):
@@ -146,7 +156,7 @@ class TranslationModeModel(TomographyModel):
         Returns:
             namedtuple of required geometry parameters.
         """
-        # TODO: Include additional names as needed for the projectors.
+
         # First get the parameters managed by ParameterHandler
         geometry_param_names = ['delta_det_row', 'delta_det_channel', 'det_row_offset', 'det_channel_offset',
                                 'source_detector_dist', 'delta_voxel', 'recon_slice_offset']
@@ -354,7 +364,8 @@ class TranslationModeModel(TomographyModel):
         # For computational efficiency, we use that to scale the voxel_cylinder values.
         # TODO:  possibly convert to a jitted function with donate_argnames to avoid copies for z, v, phi_p, cos_phi_p
         k = jnp.arange(len(voxel_cylinder))
-        z = gp.delta_voxel * k - translation[1]  # recon_ijk_to_xyz
+        z = gp.delta_voxel * (k - (num_slices - 1) / 2.0) + gp.recon_slice_offset + translation[1] # recon_ijk_to_xyz
+        #z = gp.delta_voxel * k - translation[1]  # recon_ijk_to_xyz
         v = pixel_mag * z  # geometry_xyz_to_uv_mag
         # Compute vertical cone angle of voxels
         phi_p = jnp.arctan2(v, gp.source_detector_dist)  # compute_vertical_data_single_pixel
@@ -408,6 +419,7 @@ class TranslationModeModel(TomographyModel):
         det_column, _ = jax.lax.map(create_det_column_rows, det_row_indices)
         det_column = det_column.flatten()
         det_column = jax.lax.slice_in_dim(det_column, 0, num_det_rows)
+
         return det_column
 
     @staticmethod
@@ -485,6 +497,33 @@ class TranslationModeModel(TomographyModel):
             det_voxel_cylinder = jnp.add(det_voxel_cylinder, A_chan_n.reshape((-1, 1)) * sinogram_view[:, n].T)
 
         return det_voxel_cylinder
+
+    @staticmethod
+    def back_vertical_fan_one_view_to_pixel_batch(det_voxel_cylinder, pixel_indices, single_view_params,
+                                                  projector_params, coeff_power=1):
+        """
+        Apply a fan beam backward projection in the vertical direction to the pixel determined by indices
+        into the flattened array of size num_rows x num_cols.  This returns a vector obtained from the projection of
+        the detector-based voxel cylinders onto voxel cylinders in recon space, so the output vector has length
+        num_recon_slices.
+
+        Args:
+            det_voxel_cylinder (2D jax array): 2D array of shape (num_pixels, num_det_rows) of voxel values, where
+                det_voxel_cylinder[i, j] is the value of the voxel in row j at the location determined by indices[i].
+            pixel_indices (1D jax array of int):  indices into flattened array of size num_rows x num_cols.
+            single_view_params: These are the view dependent parameters for the view being back projected.
+            projector_params (namedtuple): tuple of (sinogram_shape, recon_shape, get_geometry_params()).
+            coeff_power (int): backproject using the coefficients of (A_ij ** coeff_power).
+                Normally 1, but should be 2 when computing Hessian diagonal.
+
+        Returns:
+            2D jax array of shape (num_pixels, num_recon_slices) of voxel values.
+        """
+        pixel_map = jax.vmap(TranslationModeModel.back_vertical_fan_one_view_to_one_pixel,
+                             in_axes=(0, 0, None, None, None))
+        new_pixels = pixel_map(det_voxel_cylinder, pixel_indices, single_view_params, projector_params, coeff_power)
+
+        return new_pixels
 
     @staticmethod
     def back_vertical_fan_one_view_to_one_pixel(detector_column_values, pixel_index, translation, projector_params,
@@ -575,10 +614,10 @@ class TranslationModeModel(TomographyModel):
 
         # Convert the index into (i,j,k) coordinates corresponding to the indices into the 3D voxel array
         row_index, col_index = jnp.unravel_index(pixel_index, recon_shape[:2])
-        # slice_indices = jnp.arange(num_recon_slices)
+        slice_indices = jnp.arange(num_recon_slices)
 
-        x_p, y_p, z_p = TranslationModeModel.recon_ijk_to_xyz(row_index, col_index, slice_indices, gp.delta_voxel,
-                                                       gp.delta_recon_row, translation)
+        x_p, y_p, z_p = TranslationModeModel.recon_ijk_to_xyz(row_index, col_index, slice_indices, gp.delta_voxel, gp.delta_recon_row,
+                                                       recon_shape, gp.recon_slice_offset, translation)
 
         # Convert from xyz to coordinates on detector
         u_p, v_p, pixel_mag = TranslationModeModel.geometry_xyz_to_uv_mag(x_p, y_p, z_p, gp.source_detector_dist,
@@ -610,10 +649,22 @@ class TranslationModeModel(TomographyModel):
         gp = projector_params.geometry_params
         row_index, col_index = jnp.unravel_index(pixel_index, recon_shape[:2])
 
-        y = gp.delta_recon_row * row_index
+        angle = 0.0 # view angle = 0 for translation mode
+
+        # Compute the un-rotated coordinates relative to iso
+        # Note the change in order from (i, j) to (y, x)!!
+        y_tilde = gp.delta_recon_row * (row_index - (recon_shape[0] - 1) / 2.0)
+        x_tilde = gp.delta_voxel * (col_index - (recon_shape[1] - 1) / 2.0)
+
+        # Precompute cosine and sine of view angle, then do the rotation
+        cosine = jnp.cos(angle)  # length = num_views
+        sine = jnp.sin(angle)  # length = num_views
+
+        y = sine * x_tilde + cosine * y_tilde
 
         # Convert from xyz to coordinates on detector
         pixel_mag = 1 / (1 / gp.magnification - y / gp.source_detector_dist)
+
         return y, pixel_mag
 
     @staticmethod
@@ -635,14 +686,13 @@ class TranslationModeModel(TomographyModel):
 
         num_views, num_det_rows, num_det_channels = projector_params.sinogram_shape
         recon_shape = projector_params.recon_shape
-        num_recon_rows, num_recon_cols, num_recon_slices = recon_shape
 
         # Convert the index into (i,j,k) coordinates corresponding to the indices into the 3D voxel array
         row_index, col_index = jnp.unravel_index(pixel_indices, recon_shape[:2])
         slice_index = jnp.arange(1)
 
-        x_p, y_p, _ = TranslationModeModel.recon_ijk_to_xyz(row_index, col_index, slice_index, gp.delta_voxel,
-                                                            gp.delta_recon_row, translation)
+        x_p, y_p, _ = TranslationModeModel.recon_ijk_to_xyz(row_index, col_index, slice_index, gp.delta_voxel, gp.delta_recon_row,
+                                                       recon_shape, gp.recon_slice_offset, translation)
 
         # Convert from xyz to coordinates on detector
         # pixel_mag should be kept in terms of magnification to allow for source_detector_dist = jnp.Inf
@@ -667,7 +717,7 @@ class TranslationModeModel(TomographyModel):
         return horizontal_data
 
     @staticmethod
-    def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, translation):
+    def recon_ijk_to_xyz(i, j, k, delta_voxel, delta_recon_row, recon_shape, recon_slice_offset, translation):
         """
         Convert (i, j, k) indices into the recon volume to corresponding (x, y, z) coordinates.
 
@@ -677,14 +727,25 @@ class TranslationModeModel(TomographyModel):
 
         Note: This version assumes that the samples distance from the source remains constant.
         """
+        num_recon_rows, num_recon_cols, num_recon_slices = recon_shape
+
         # Compute the x, y, z coordinates for the given translation
         # Note the change in order from (i, j) to (y, x)!!
-        y = delta_recon_row * i
-        x = delta_voxel * j - translation[0]
-        z = delta_voxel * k - translation[1]
-        print(f'delta_recon_row:',delta_recon_row)
-        print(f'delta_voxel:', delta_voxel)
-        print(f'translation:',translation[0])
+
+        y_tilde = delta_recon_row * (i - (num_recon_rows - 1) / 2.0)
+        x_tilde = delta_voxel * (j - (num_recon_cols - 1) / 2.0)
+
+        # Precompute cosine and sine of view angle
+        angle = 0.0 # view angle = 0 for translation mode
+        cosine = jnp.cos(angle)  # length = num_views
+        sine = jnp.sin(angle)  # length = num_views
+
+        x = cosine * x_tilde - sine * y_tilde + translation[0]
+        y = sine * x_tilde + cosine * y_tilde
+
+        z = delta_voxel * (k - (num_recon_slices - 1) / 2.0) + recon_slice_offset + translation[1]
+        print('translation vector:',translation)
+
         return x, y, z
 
     @staticmethod
